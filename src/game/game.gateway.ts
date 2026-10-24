@@ -34,7 +34,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /** roomCode -> playerId -> socketId, used to push each viewer their own masked room snapshot. */
   private readonly connections = new Map<string, Map<string, string>>();
 
-  /** roomCode -> pending auto-reveal timer for the active REVEAL turn's deadline. */
+  /** roomCode -> pending timer for the current REVEAL turn's or VOTING session's deadline. */
   private readonly turnTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(
@@ -84,6 +84,18 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  /** Tells a removed player's socket why and drops it, so it can't reconnect as a ghost. */
+  private disconnectPlayer(code: string, playerId: string, event: string): void {
+    const roomConnections = this.connections.get(code);
+    const socketId = roomConnections?.get(playerId);
+    roomConnections?.delete(playerId);
+    if (!socketId) {
+      return;
+    }
+    this.server.to(socketId).emit(event);
+    this.server.in(socketId).disconnectSockets(true);
+  }
+
   private broadcastRoomState(room: Room): void {
     const roomConnections = this.connections.get(room.code);
     for (const player of room.players) {
@@ -110,10 +122,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /**
-   * Keeps a REVEAL turn's server-side deadline enforced: reschedules a timer
-   * matching `room.phaseDeadline` that auto-reveals a random trait on the
-   * active player's behalf if they don't act in time. Any previous timer for
-   * the room is cleared first, so this is safe to call after every action.
+   * Keeps the server-side `room.phaseDeadline` enforced: in REVEAL it
+   * auto-reveals a random trait for the active player, in VOTING it casts
+   * random votes for everyone who hasn't voted. Any previous timer for the
+   * room is cleared first, so this is safe to call after every action.
    */
   private scheduleTurnTimeout(room: Room): void {
     const existing = this.turnTimers.get(room.code);
@@ -121,7 +133,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       clearTimeout(existing);
       this.turnTimers.delete(room.code);
     }
-    if (room.phase !== RoomPhase.REVEAL || room.phaseDeadline === null) {
+    const onTimeout =
+      room.phase === RoomPhase.REVEAL
+        ? (code: string) => this.gameService.autoRevealTimeout(code)
+        : room.phase === RoomPhase.VOTING
+          ? (code: string) => this.gameService.autoVoteTimeout(code)
+          : null;
+    if (!onTimeout || room.phaseDeadline === null) {
       return;
     }
 
@@ -129,11 +147,11 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const timer = setTimeout(() => {
       this.turnTimers.delete(room.code);
       try {
-        const updated = this.gameService.autoRevealTimeout(room.code);
+        const updated = onTimeout(room.code);
         this.broadcastRoomState(updated);
         this.scheduleTurnTimeout(updated);
       } catch (error) {
-        this.logger.error(`Auto-reveal timeout failed for room ${room.code}`, error as Error);
+        this.logger.error(`Phase timeout failed for room ${room.code}`, error as Error);
       }
     }, delay);
     this.turnTimers.set(room.code, timer);
@@ -159,6 +177,15 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.handleAction(client, (d) =>
       this.roomsService.selectCataclysm(d.code, d.playerId, body.cataclysmId),
     );
+  }
+
+  @SubscribeMessage('owner:kickPlayer')
+  onKickPlayer(@ConnectedSocket() client: Socket, @MessageBody() body: { playerId: string }) {
+    this.handleAction(client, (d) => {
+      const room = this.roomsService.kickPlayer(d.code, d.playerId, body?.playerId);
+      this.disconnectPlayer(room.code, body.playerId, 'room:kicked');
+      return room;
+    });
   }
 
   @SubscribeMessage('owner:startGame')
