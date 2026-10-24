@@ -1,6 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { BunkerConfig, CataclysmConfig, PlayerTraits, TraitCard } from '../common/interfaces';
-import { TraitCategory } from '../common/enums';
+import {
+  BunkerConfig,
+  CataclysmConfig,
+  PlayerTraits,
+  SpecialCard,
+  TraitCard,
+} from '../common/interfaces';
+import { SpecialCardTiming, TraitCategory } from '../common/enums';
+import { SPECIAL_CARDS_PER_PLAYER } from '../game/constants/game.constants';
+import { SPECIAL_CARD_TEMPLATES } from './special-cards.data';
 import { BUNKERS } from './bunkers.data';
 import { CATACLYSMS } from './cataclysms.data';
 import {
@@ -59,17 +67,50 @@ export class ConfigDataService {
     return pickRandom(CATACLYSMS).id;
   }
 
+  generateTrait(category: TraitCategory): TraitCard {
+    switch (category) {
+      case TraitCategory.GENDER_AGE:
+        return pickRandom(GENDER_AGE_POOL);
+      case TraitCategory.BODY:
+        return pickRandom(BODY_POOL);
+      case TraitCategory.CHARACTER:
+        return pickRandom(CHARACTER_POOL);
+      case TraitCategory.PROFESSION:
+        return pickNameWithLevel(PROFESSION_POOL, PROFESSION_LEVELS);
+      case TraitCategory.HEALTH:
+        return pickRandom(HEALTH_POOL);
+      case TraitCategory.HOBBY:
+        return pickNameWithLevel(HOBBY_POOL, HOBBY_LEVELS);
+      case TraitCategory.PHOBIA:
+        return pickRandom(PHOBIA_POOL);
+      case TraitCategory.BAGGAGE:
+        return pickRandom(BAGGAGE_POOL);
+      case TraitCategory.FACT:
+        return pickRandom(FACT_POOL);
+    }
+  }
+
   generatePlayerTraits(): PlayerTraits {
-    return {
-      [TraitCategory.GENDER_AGE]: pickRandom(GENDER_AGE_POOL),
-      [TraitCategory.BODY]: pickRandom(BODY_POOL),
-      [TraitCategory.CHARACTER]: pickRandom(CHARACTER_POOL),
-      [TraitCategory.PROFESSION]: pickNameWithLevel(PROFESSION_POOL, PROFESSION_LEVELS),
-      [TraitCategory.HEALTH]: pickRandom(HEALTH_POOL),
-      [TraitCategory.HOBBY]: pickNameWithLevel(HOBBY_POOL, HOBBY_LEVELS),
-      [TraitCategory.PHOBIA]: pickRandom(PHOBIA_POOL),
-      [TraitCategory.BAGGAGE]: pickRandom(BAGGAGE_POOL),
-      [TraitCategory.FACT]: pickRandom(FACT_POOL),
-    };
+    return Object.fromEntries(
+      Object.values(TraitCategory).map((category) => [category, this.generateTrait(category)]),
+    ) as PlayerTraits;
+  }
+
+  /**
+   * Deals distinct special cards; the first always has ANY timing so every
+   * player can act outside voting too.
+   */
+  dealSpecialCards(playerId: string): SpecialCard[] {
+    const anyTiming = SPECIAL_CARD_TEMPLATES.filter((t) => t.timing === SpecialCardTiming.ANY);
+    const first = pickRandom(anyTiming);
+    const rest = SPECIAL_CARD_TEMPLATES.filter((t) => t !== first)
+      .sort(() => Math.random() - 0.5)
+      .slice(0, SPECIAL_CARDS_PER_PLAYER - 1);
+    return [first, ...rest].map((template, i) => ({
+      ...template,
+      id: `${playerId}:${i}`,
+      used: false,
+      targetPlayerId: null,
+    }));
   }
 }

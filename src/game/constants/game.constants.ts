@@ -4,6 +4,9 @@ export const TOTAL_ROUNDS = 5;
 export const ROOM_CODE_LENGTH = 6;
 export const REVEAL_TURN_SECONDS = 60;
 export const VOTING_DISCUSSION_SECONDS = 60;
+export const SPECIAL_CARDS_PER_PLAYER = 2;
+/** How many recent log entries are sent to clients. */
+export const LOG_ENTRIES_IN_SNAPSHOT = 30;
 
 /**
  * Number of voting sessions (each eliminates exactly one player) held during
