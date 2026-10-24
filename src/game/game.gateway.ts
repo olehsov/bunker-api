@@ -11,6 +11,7 @@ import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { RoomsService } from '../rooms/rooms.service';
 import { GameService } from './game.service';
+import { SpecialCardsService } from './special-cards.service';
 import { toRoomSnapshot } from './room-view.mapper';
 import { Room } from '../common/interfaces';
 import { RoomPhase, TraitCategory } from '../common/enums';
@@ -39,6 +40,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly roomsService: RoomsService,
     private readonly gameService: GameService,
+    private readonly specialCardsService: SpecialCardsService,
   ) {}
 
   handleConnection(client: Socket) {
@@ -173,6 +175,16 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   onRevealTrait(@ConnectedSocket() client: Socket, @MessageBody() body: { category: TraitCategory }) {
     this.handleAction(client, (d) =>
       this.gameService.revealTrait(d.code, d.playerId, body.category),
+    );
+  }
+
+  @SubscribeMessage('player:playSpecialCard')
+  onPlaySpecialCard(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { cardId: string; targetPlayerId?: string | null },
+  ) {
+    this.handleAction(client, (d) =>
+      this.specialCardsService.playCard(d.code, d.playerId, body?.cardId, body?.targetPlayerId),
     );
   }
 

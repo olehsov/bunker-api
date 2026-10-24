@@ -11,6 +11,7 @@ import {
 } from './constants/game.constants';
 import { RoomsService } from '../rooms/rooms.service';
 import { ConfigDataService } from '../config/config-data.service';
+import { addLog, tallyVotes } from './game-log.util';
 
 function sortedByJoinOrder(players: Player[]): Player[] {
   return [...players].sort((a, b) => a.joinOrder - b.joinOrder);
@@ -65,7 +66,10 @@ export class GameService {
     for (const player of room.players) {
       player.traits = this.configDataService.generatePlayerTraits();
       player.revealedTraitKeys = [];
+      player.specialCards = this.configDataService.dealSpecialCards(player.id);
+      player.peeks = [];
     }
+    room.log = [];
 
     room.initialPlayerCount = room.players.length;
     room.round = 0;
@@ -106,6 +110,7 @@ export class GameService {
     room.votingSession = null;
     room.phase = RoomPhase.REVEAL;
     room.phaseDeadline = Date.now() + REVEAL_TURN_SECONDS * 1000;
+    addLog(room, 'round', `Раунд ${room.round} розпочато`);
     return room;
   }
 
@@ -120,11 +125,12 @@ export class GameService {
     }
     const player = this.roomsService.getPlayerOrThrow(room, playerId);
 
-    const effectiveCategory = room.round === 1 ? TraitCategory.PROFESSION : category;
+    const forceProfession = this.mustRevealProfession(room, player);
+    const effectiveCategory = forceProfession ? TraitCategory.PROFESSION : category;
     if (!TRAIT_CATEGORY_ORDER.includes(effectiveCategory)) {
       throw new BadRequestException('Невідома категорія властивості');
     }
-    if (room.round === 1 && category && category !== TraitCategory.PROFESSION) {
+    if (forceProfession && category && category !== TraitCategory.PROFESSION) {
       throw new BadRequestException('У 1-му раунді всі відкривають картку Професії');
     }
     if (player.revealedTraitKeys.includes(effectiveCategory)) {
@@ -151,12 +157,19 @@ export class GameService {
     if (unrevealed.length === 0) {
       return room;
     }
-    const category =
-      room.round === 1
-        ? TraitCategory.PROFESSION
-        : unrevealed[Math.floor(Math.random() * unrevealed.length)];
+    const category = this.mustRevealProfession(room, player)
+      ? TraitCategory.PROFESSION
+      : unrevealed[Math.floor(Math.random() * unrevealed.length)];
 
     return this.applyRevealAndAdvance(room, player, category);
+  }
+
+  /**
+   * Round 1 opens professions — unless a FORCE_REVEAL card already exposed
+   * this player's profession, in which case any hidden card is fair game.
+   */
+  private mustRevealProfession(room: Room, player: Player): boolean {
+    return room.round === 1 && !player.revealedTraitKeys.includes(TraitCategory.PROFESSION);
   }
 
   /** Shared by manual and auto-timeout reveals: records the trait and moves the turn on. */
@@ -216,6 +229,9 @@ export class GameService {
     if (target.eliminated) {
       throw new BadRequestException('Не можна голосувати за вигнаного гравця');
     }
+    if (room.votingSession.immunePlayerIds.includes(targetPlayerId)) {
+      throw new BadRequestException('У цього гравця імунітет у поточному голосуванні');
+    }
 
     room.votingSession.votes[playerId] = targetPlayerId;
     return room;
@@ -235,12 +251,9 @@ export class GameService {
       throw new BadRequestException('Не всі гравці проголосували');
     }
 
-    const counts = new Map<string, number>();
-    for (const targetId of Object.values(votes)) {
-      counts.set(targetId, (counts.get(targetId) ?? 0) + 1);
-    }
-    const maxVotes = Math.max(...counts.values());
-    const topVoted = [...counts.entries()].filter(([, c]) => c === maxVotes).map(([id]) => id);
+    const counts = Object.entries(tallyVotes(room.votingSession));
+    const maxVotes = Math.max(...counts.map(([, c]) => c));
+    const topVoted = counts.filter(([, c]) => c === maxVotes).map(([id]) => id);
 
     if (topVoted.length > 1) {
       room.votingSession.lastResult = 'TIE';
@@ -252,6 +265,7 @@ export class GameService {
     const eliminatedPlayer = this.roomsService.getPlayerOrThrow(room, eliminatedId);
     eliminatedPlayer.eliminated = true;
     eliminatedPlayer.revealedTraitKeys = [...TRAIT_CATEGORY_ORDER];
+    addLog(room, 'elimination', `${eliminatedPlayer.name} вигнано з бункера (${maxVotes} голос.)`);
 
     room.votingSessionsRemainingThisRound -= 1;
 
@@ -283,7 +297,14 @@ export class GameService {
   }
 
   private freshVotingSession(index: number): VotingSession {
-    return { index, votes: {}, lastResult: null, tiedPlayerIds: [] };
+    return {
+      index,
+      votes: {},
+      lastResult: null,
+      tiedPlayerIds: [],
+      immunePlayerIds: [],
+      doubleVoterIds: [],
+    };
   }
 
   /** Called once a round's reveal circle + all its voting sessions are done. */

@@ -26,6 +26,8 @@ export class RoomsService {
       joinOrder: 0,
       traits: null,
       revealedTraitKeys: [],
+      specialCards: [],
+      peeks: [],
     };
 
     const room: Room = {
@@ -46,6 +48,7 @@ export class RoomsService {
       votingSessionsRemainingThisRound: 0,
       votingSession: null,
       phaseDeadline: null,
+      log: [],
     };
 
     this.rooms.set(code, room);
@@ -73,6 +76,8 @@ export class RoomsService {
       joinOrder: room.players.length,
       traits: null,
       revealedTraitKeys: [],
+      specialCards: [],
+      peeks: [],
     };
     room.players.push(player);
     return { room, playerId };
