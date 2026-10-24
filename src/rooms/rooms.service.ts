@@ -73,7 +73,8 @@ export class RoomsService {
       ready: false,
       connected: false,
       eliminated: false,
-      joinOrder: room.players.length,
+      // Max + 1 rather than length: kicked/left players leave gaps.
+      joinOrder: Math.max(...room.players.map((p) => p.joinOrder)) + 1,
       traits: null,
       revealedTraitKeys: [],
       specialCards: [],
@@ -173,6 +174,20 @@ export class RoomsService {
       return room;
     }
     room.players = room.players.filter((p) => p.id !== playerId);
+    return room;
+  }
+
+  kickPlayer(code: string, ownerId: string, targetPlayerId: string): Room {
+    const room = this.getRoomOrThrow(code);
+    this.assertOwner(room, ownerId);
+    if (room.phase !== RoomPhase.LOBBY) {
+      throw new BadRequestException('Вигнати гравця можна лише в лобі');
+    }
+    if (targetPlayerId === ownerId) {
+      throw new BadRequestException('Не можна вигнати самого себе');
+    }
+    this.getPlayerOrThrow(room, targetPlayerId);
+    room.players = room.players.filter((p) => p.id !== targetPlayerId);
     return room;
   }
 

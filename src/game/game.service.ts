@@ -237,6 +237,39 @@ export class GameService {
     return room;
   }
 
+  /**
+   * Called by the gateway when a VOTING session's deadline elapses: every
+   * active player who hasn't voted gets a vote for a random valid target, so
+   * the owner can close the session instead of waiting on idle players.
+   */
+  autoVoteTimeout(code: string): Room {
+    const room = this.roomsService.getRoomOrThrow(code);
+    const session = room.votingSession;
+    if (room.phase !== RoomPhase.VOTING || !session) {
+      return room;
+    }
+    // Cleared even after a TIE so the gateway doesn't re-arm an expired deadline.
+    room.phaseDeadline = null;
+    if (session.lastResult !== null) {
+      return room;
+    }
+
+    const active = activePlayers(room);
+    const idle = active.filter((p) => session.votes[p.id] === undefined);
+    for (const voter of idle) {
+      const targets = active.filter(
+        (p) => p.id !== voter.id && !session.immunePlayerIds.includes(p.id),
+      );
+      if (targets.length > 0) {
+        session.votes[voter.id] = targets[Math.floor(Math.random() * targets.length)].id;
+      }
+    }
+    if (idle.length > 0) {
+      addLog(room, 'vote', `Час вийшов: ${idle.map((p) => p.name).join(', ')} — голос випадковий`);
+    }
+    return room;
+  }
+
   endVoting(code: string, playerId: string): Room {
     const room = this.roomsService.getRoomOrThrow(code);
     this.roomsService.assertOwner(room, playerId);

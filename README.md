@@ -89,12 +89,16 @@ npm run start:dev   # http://localhost:3000, WS namespace /game
 - `player:ready` — `{ ready }`. Не-власник, лише в лобі.
 - `owner:selectBunker` — `{ bunkerId }`. Власник, лише в лобі.
 - `owner:selectCataclysm` — `{ cataclysmId }`. Власник, лише в лобі.
+- `owner:kickPlayer` — `{ playerId }`. Власник, лише в лобі. Вигнаний гравець
+  отримує `room:kicked`, і його сокет відключається.
 - `owner:startGame` — без payload. Власник, коли гравці готові (4–16).
 - `owner:startRound` — без payload. Власник.
 - `player:revealTrait` — `{ category }`. Активний гравець (у раунді 1 категорія ігнорується — завжди PROFESSION).
 - `owner:startVoting` — без payload. Власник, коли є що голосувати.
 - `player:castVote` — `{ targetPlayerId }`. Будь-який невигнаний гравець.
-- `owner:endVoting` — без payload. Власник, коли всі проголосували.
+- `owner:endVoting` — без payload. Власник, коли всі проголосували. Коли
+  60-секундний таймер голосування спливає, сервер сам віддає випадковий
+  голос за кожного, хто не проголосував.
 - `owner:restartVoting` — без payload. Власник, лише після нічиєї.
 - `player:playSpecialCard` — `{ cardId, targetPlayerId? }`. Будь-який
   невигнаний гравець під час гри; `targetPlayerId` обов'язковий для карток
